@@ -37,14 +37,27 @@ patch(AnalyticDistribution.prototype, {
         }
     },
     async save() {
-        await super.save();
-        if (this.state_manual_distribution.id) {
-            await this.props.record.update({
-                manual_distribution_id: [
-                    this.state_manual_distribution.id,
-                    this.state_manual_distribution.label,
-                ],
-            });
+        if (!this.state_manual_distribution.id) {
+            return super.save();
+        }
+        // Send both fields in a single record.update() instead of calling
+        // super.save() followed by a second update: two sequential updates
+        // leave a window where a form save triggered right after closing the
+        // popup is processed between them, so the second update re-dirties
+        // the record after it was saved and the form never reaches the
+        // saved state.
+        await this.props.record.update({
+            [this.props.name]: this.dataToJson(),
+            manual_distribution_id: [
+                this.state_manual_distribution.id,
+                this.state_manual_distribution.label,
+            ],
+        });
+        if (this.props.multi_edit) {
+            await this.jsonToData(this.props.record.data[this.props.name]);
+            this.initialFormattedData = this.state.formattedData;
+            this.state.formattedData = [];
+            this.state.update_plan = {};
         }
     },
     async refreshManualDistribution(manual_distribution_id) {
@@ -123,13 +136,14 @@ patch(AnalyticDistribution.prototype, {
                 value: record.id,
                 label: record.display_name,
                 analytic_distribution: record.analytic_distribution,
+                onSelect: () => this.onSelectDistributionManual(record),
             });
             this.manual_distribution_by_id[record.id] = record;
         }
         if (!options.length) {
             options.push({
                 label: _t("No Analytic Distribution Manual found"),
-                classList: "o_m2o_no_result",
+                cssClass: "o_m2o_no_result",
                 unselectable: true,
             });
         }
@@ -139,7 +153,7 @@ patch(AnalyticDistribution.prototype, {
         const args = {
             domain: domain,
             fields: ["id", "display_name", "analytic_distribution"],
-            context: [],
+            context: {},
         };
         if (limit) {
             args.limit = limit;
@@ -151,10 +165,21 @@ patch(AnalyticDistribution.prototype, {
             args
         );
     },
+    _getRecordCompanyId() {
+        const company_id = this.props.record.data.company_id;
+        if (Array.isArray(company_id)) {
+            return company_id[0];
+        }
+        if (company_id && typeof company_id === "object") {
+            return company_id.id || company_id.resId;
+        }
+        return company_id;
+    },
     searchAnalyticDistributionManualDomain(searchTerm) {
         const domain = [["name", "ilike", searchTerm]];
-        if (this.props.record.data.company_id) {
-            domain.push(["company_id", "=", this.props.record.data.company_id[0]]);
+        const company_id = this._getRecordCompanyId();
+        if (company_id) {
+            domain.push(["company_id", "=", company_id]);
         }
         return domain;
     },
@@ -168,7 +193,7 @@ patch(AnalyticDistribution.prototype, {
         const analyticAccountIds = Object.keys(selected_option.analytic_distribution)
             .map((key) => key.split(","))
             .flat()
-            .map((id) => parseInt(id));
+            .map((id) => parseInt(id, 10));
         const analyticAccountDict = analyticAccountIds.length
             ? await this.fetchAnalyticAccounts([["id", "in", analyticAccountIds]])
             : [];
@@ -201,10 +226,10 @@ patch(AnalyticDistribution.prototype, {
         this.state.formattedData.push(...formattedLines);
     },
     async onSelectDistributionManual(option) {
-        const selected_option = Object.getPrototypeOf(option);
+        const selected_option = option;
 
-        this.state_manual_distribution.id = selected_option.value;
-        this.state_manual_distribution.label = selected_option.label;
+        this.state_manual_distribution.id = selected_option.id;
+        this.state_manual_distribution.label = selected_option.display_name;
         this.state_manual_distribution.analytic_distribution =
             selected_option.analytic_distribution;
         // Clear all distribution

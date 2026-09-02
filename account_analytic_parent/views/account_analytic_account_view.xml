@@ -20,11 +20,7 @@
         <field name="model">account.analytic.account</field>
         <field name="inherit_id" ref="analytic.view_account_analytic_account_list" />
         <field name="arch" type="xml">
-            <field name="name" position="attributes">
-                <attribute name="column_invisible">1</attribute>
-            </field>
             <field name="name" position="after">
-                <field name="complete_name" string="Name" />
                 <field name="level" optional="hide" />
             </field>
         </field>
